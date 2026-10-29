@@ -1,7 +1,7 @@
 <template>
-  <base-fieldset :legend="t('settings.dependencies.legend')" :label="t('settings.dependencies.hint')">
+  <base-fieldset class="dependencies" :legend="t('settings.dependencies.legend')" :label="t('settings.dependencies.hint')">
     <p class="label">{{ t('settings.dependencies.saveHint') }}</p>
-    <button type="button" class="btn btn-sm btn-soft self-start" :disabled="loading" @click="refresh">
+    <button type="button" class="btn btn-sm btn-soft self-start justify-self-start" :disabled="loading" @click="refresh">
       {{ t('settings.dependencies.refresh') }}
     </button>
     <p v-if="error" role="alert" class="text-error break-words">{{ error }}</p>
@@ -19,8 +19,8 @@
           {{ t('settings.dependencies.diagnostic', { path: diagnostic.path, reason: diagnostic.reason }) }}
         </p>
       </template>
-      <div class="flex gap-2">
-        <input :id="`dependency-${tool}`" v-model="settings.dependencies.paths[tool]" type="text" class="input input-sm w-full" :placeholder="t('settings.dependencies.automatic')" :disabled="locked" />
+      <div class="dependency-controls flex flex-wrap gap-2">
+        <input :id="`dependency-${tool}`" v-model="settings.dependencies.paths[tool]" type="text" class="input input-sm" :placeholder="t('settings.dependencies.automatic')" :disabled="locked" />
         <button type="button" class="btn btn-sm btn-soft" :disabled="locked" @click="select(tool)">{{ t('settings.dependencies.browse') }}</button>
         <button type="button" class="btn btn-sm btn-soft" :disabled="locked || !settings.dependencies.paths[tool]" @click="settings.dependencies.paths[tool] = ''">{{ t('settings.dependencies.automatic') }}</button>
       </div>
@@ -69,3 +69,35 @@ async function select(tool: string) {
 
 onMounted(refresh);
 </script>
+
+<style scoped>
+.dependencies {
+  min-inline-size: 0;
+  max-width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.dependencies p,
+.dependencies :deep(.label) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.dependency-controls input {
+  flex: 1 1 16rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.dependencies button {
+  height: auto;
+  min-height: 2rem;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.dependency-controls button {
+  flex: 0 1 auto;
+}
+</style>
