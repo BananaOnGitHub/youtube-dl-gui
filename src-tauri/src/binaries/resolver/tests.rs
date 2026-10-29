@@ -1,6 +1,5 @@
 use super::*;
 use std::fs;
-use std::io::Write;
 use std::sync::{Arc, OnceLock};
 
 struct Fixture {
@@ -16,10 +15,21 @@ impl Fixture {
     let dir = self.root.join(directory);
     fs::create_dir_all(&dir).unwrap();
     let path = dir.join(executable_name(tool));
-    fs::copy(fixture_binary(), &path).unwrap();
-    let mut f = fs::OpenOptions::new().append(true).open(&path).unwrap();
-    write!(f, "\nOVD_FIXTURE\n{tool}\n{version}\n{mode}\n{abi}\n").unwrap();
-    drop(f);
+    let mut bytes = fs::read(fixture_binary()).unwrap();
+    let marker = b"OVD_FIXTURE_CONFIG\n";
+    let offset = bytes
+      .windows(marker.len())
+      .position(|w| w == marker)
+      .expect("fixture configuration section")
+      + marker.len();
+    let configuration = format!("{tool}\n{version}\n{mode}\n{abi}\n");
+    bytes[offset..offset + configuration.len()].copy_from_slice(configuration.as_bytes());
+    fs::write(&path, bytes).unwrap();
+    #[cfg(unix)]
+    {
+      use std::os::unix::fs::PermissionsExt;
+      fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
     #[cfg(target_os = "macos")]
     assert!(Command::new("/usr/bin/codesign")
       .args(["--force", "--sign", "-"])
@@ -186,9 +196,11 @@ fn hung_executable_is_killed_with_bounded_wait() {
   let f = Fixture::new();
   let path = f.tool("system", "deno", "2.5.0", "hang", 0);
   let start = Instant::now();
-  assert!(probe(&path, &["--version"], Duration::from_millis(80))
-    .unwrap_err()
-    .contains("timed out"));
+  let error = probe(&path, &["--version"], Duration::from_millis(200)).unwrap_err();
+  assert!(
+    error.contains("timed out"),
+    "unexpected validation error: {error}"
+  );
   assert!(start.elapsed() < Duration::from_secs(3));
 }
 

@@ -1,9 +1,18 @@
-use std::{env, fs, io::{self, Write}, process, thread, time::Duration};
+use std::{env, io::{self, Write}, process, thread, time::Duration};
+// Fixed-size writable test data preserves PE/ELF/Mach-O layout. In particular,
+// appending an overlay would invalidate a Mach-O code-signature layout.
+#[used]
+static CONFIG: [u8; 512] = {
+  let mut bytes = [0; 512];
+  let marker = b"OVD_FIXTURE_CONFIG\n";
+  let mut i = 0;
+  while i < marker.len() { bytes[i] = marker[i]; i += 1; }
+  bytes
+};
 fn main() {
-  let bytes = fs::read(env::current_exe().unwrap()).unwrap();
-  let marker = b"\nOVD_FIXTURE\n";
-  let offset = bytes.windows(marker.len()).rposition(|w| w == marker).unwrap() + marker.len();
-  let text = String::from_utf8_lossy(&bytes[offset..]);
+  let data = std::hint::black_box(&CONFIG);
+  let text = String::from_utf8_lossy(&data[19..]);
+  let text = text.trim_end_matches('\0');
   let fields: Vec<_> = text.lines().collect();
   let tool = fields[0]; let version = fields[1]; let mode = fields[2]; let abi = fields[3];
   let args: Vec<_> = env::args().skip(1).collect();
