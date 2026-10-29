@@ -657,13 +657,13 @@ pub fn probe(path: &Path, args: &[&str], timeout: Duration) -> Result<String, St
     .stderr(Stdio::piped());
   configure_command(&mut command).map_err(|e| e.to_string())?;
   let start = Instant::now();
+  #[cfg(unix)]
   let mut child = loop {
     match command.spawn() {
       Ok(child) => break child,
       Err(error) => {
         // Concurrent package-manager writes, or a fork briefly inheriting an
         // executable's writable descriptor, can cause transient ETXTBSY.
-        #[cfg(unix)]
         if error.raw_os_error() == Some(libc::ETXTBSY)
           && start.elapsed() < timeout.min(Duration::from_millis(500))
         {
@@ -674,6 +674,10 @@ pub fn probe(path: &Path, args: &[&str], timeout: Duration) -> Result<String, St
       }
     }
   };
+  #[cfg(not(unix))]
+  let mut child = command
+    .spawn()
+    .map_err(|error| format!("unable to launch: {error}"))?;
   let platform = match platform_process_from_child(&child) {
     Ok(p) => p,
     Err(e) => {
