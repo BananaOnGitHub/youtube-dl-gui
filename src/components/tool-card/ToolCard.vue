@@ -48,7 +48,7 @@
         </span>
       </section>
       <div v-if="dependency && !hasError" class="mt-2 min-w-0">
-        <p class="text-sm">{{ t('settings.dependencies.source.' + dependency.source) }}</p>
+        <p class="text-sm">{{ t('install.found.source.' + dependency.source) }}</p>
         <p class="text-sm break-all">{{ dependency.path }}</p>
       </div>
       <p v-else-if="!hasError" class="mt-2">

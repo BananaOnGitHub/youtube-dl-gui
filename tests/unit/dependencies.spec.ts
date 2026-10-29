@@ -84,7 +84,7 @@ describe('dependency startup', () => {
     expect(found.find('.stroke-success').exists()).toBe(true);
     expect(found.text()).not.toContain('0 B / 0 B');
     expect(wrapper.text()).toContain('C:\\Tools ü\\deno.exe');
-    expect(wrapper.text()).toContain('System');
+    expect(wrapper.text()).toContain('Found on system');
     expect(wrapper.text()).toContain('2.5.0');
     wrapper.unmount();
   });

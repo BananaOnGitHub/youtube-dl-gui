@@ -6,6 +6,8 @@ pub mod runners {
     ));
   }
 }
+#[path = "../../../src-tauri/src/binaries/binaries_extractor.rs"]
+pub mod binaries_extractor;
 #[path = "../../../src-tauri/src/binaries/installer.rs"]
 pub mod installer;
 #[path = "../../../src-tauri/src/binaries/resolver.rs"]
@@ -13,5 +15,5 @@ pub mod resolver;
 #[path = "../../../src-tauri/src/binaries/runtime.rs"]
 pub mod runtime;
 pub mod binaries {
-  pub use crate::{installer, resolver, runtime};
+  pub use crate::{binaries_extractor, installer, resolver, runtime};
 }

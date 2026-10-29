@@ -139,7 +139,7 @@ mod tests {
   async fn validated_ytdlp_is_publishable() {
     use crate::binaries::resolver::{Discovery, Resolver};
     use std::path::Path;
-    let Some(source) = std::env::var_os("OVD_TEST_YTDLP_DIR") else {
+    let Some(source) = std::env::var_os("OVD_TEST_YTDLP_ARCHIVE") else {
       return;
     };
     let root = std::env::temp_dir().join(format!("ovd-ytdlp-test-{}", uuid::Uuid::new_v4()));
@@ -147,21 +147,22 @@ mod tests {
     let bin = root.join("bin");
     std::fs::create_dir_all(&staging).unwrap();
     std::fs::create_dir_all(&bin).unwrap();
-    // yt-dlp's Windows asset is a bundle: its adjacent runtime files are required.
-    fn copy_tree(source: &Path, destination: &Path) -> std::io::Result<()> {
-      std::fs::create_dir_all(destination)?;
-      for entry in std::fs::read_dir(source)? {
-        let entry = entry?;
-        let target = destination.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-          copy_tree(&entry.path(), &target)?;
-        } else {
-          std::fs::copy(entry.path(), target)?;
-        }
-      }
-      Ok(())
-    }
-    copy_tree(Path::new(&source), &staging).unwrap();
+    use crate::binaries::binaries_extractor::{extract_zip_bundle, hoist_bundle_contents_into_bin};
+    let archive = staging.join("yt-dlp_win.zip");
+    std::fs::copy(source, &archive).unwrap();
+    let (bundle, _) = extract_zip_bundle(
+      &archive,
+      &staging,
+      Some("yt-dlp"),
+      Path::new("yt-dlp.exe"),
+      Some("yt-dlp.exe"),
+    )
+    .await
+    .unwrap();
+    std::fs::remove_file(archive).unwrap();
+    hoist_bundle_contents_into_bin(&bundle, &staging.join("yt-dlp.exe"))
+      .await
+      .unwrap();
     let reports = Resolver::default()
       .resolve(&Discovery {
         bin_dir: staging.clone(),

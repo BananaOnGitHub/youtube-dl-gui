@@ -986,6 +986,12 @@
   "install": {
     "found": {
       "title": "Dependencies already found",
+      "source": {
+        "system": "Found on system",
+        "configured": "Found at configured path",
+        "managed": "Found in application storage",
+        "bundled": "Included with this application"
+      },
       "hint": "These validated tools were found before installation. Missing tools are installed below.",
       "empty": "No usable dependencies were found on this device."
     },

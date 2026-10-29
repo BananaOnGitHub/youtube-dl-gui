@@ -5,13 +5,13 @@ use super::resolver::{self, DependencyReport, Discovery, Resolver, Source, Statu
 use super::runtime::{self, RuntimePaths};
 use crate::binaries::binaries_extractor::{
   extract_tar_bz2, extract_tar_bz2_bundle, extract_zip, extract_zip_bundle,
+  hoist_bundle_contents_into_bin,
 };
 use crate::binaries::binaries_state::CheckResult;
 use crate::paths::PathsManager;
 use crate::SharedConfig;
 use base64::Engine;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-use fs_extra::dir::{move_dir, CopyOptions};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Wry};
@@ -606,9 +606,7 @@ impl BinariesManager {
             )
             .await?;
             fs::remove_file(dest).await?;
-            self
-              .hoist_bundle_contents_into_bin(&dir, &canonical)
-              .await?;
+            hoist_bundle_contents_into_bin(&dir, &canonical).await?;
           } else {
             extract_zip(tool, canonical.clone(), dest, parent, entry).await?;
             fs::remove_file(dest).await?;
@@ -625,9 +623,7 @@ impl BinariesManager {
             )
             .await?;
             fs::remove_file(dest).await?;
-            self
-              .hoist_bundle_contents_into_bin(&dir, &canonical)
-              .await?;
+            hoist_bundle_contents_into_bin(&dir, &canonical).await?;
           } else {
             extract_tar_bz2(tool, canonical.clone(), dest, parent, entry).await?;
             fs::remove_file(dest).await?;
@@ -681,36 +677,6 @@ impl BinariesManager {
         error: error.into(),
       },
     );
-  }
-
-  pub async fn hoist_bundle_contents_into_bin(
-    &self,
-    bundle_root: &Path,
-    canonical: &Path,
-  ) -> Result<(), AnyError> {
-    let bin_dir = canonical
-      .parent()
-      .ok_or("canonical has no parent directory")?
-      .to_path_buf();
-
-    tokio::fs::create_dir_all(&bin_dir).await?;
-
-    let src = bundle_root.to_path_buf();
-    let dest = bin_dir.clone();
-
-    tokio::task::spawn_blocking(move || {
-      let mut opts = CopyOptions::new();
-      opts.overwrite = true;
-      opts.copy_inside = false;
-      opts.content_only = true;
-      move_dir(&src, &dest, &opts)?;
-      Ok::<(), fs_extra::error::Error>(())
-    })
-    .await??;
-
-    let _ = fs::remove_dir_all(bundle_root).await;
-
-    Ok(())
   }
 }
 
