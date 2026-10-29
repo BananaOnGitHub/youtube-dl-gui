@@ -138,16 +138,30 @@ mod tests {
   #[tokio::test]
   async fn validated_ytdlp_is_publishable() {
     use crate::binaries::resolver::{Discovery, Resolver};
-    let Some(source) = std::env::var_os("OVD_TEST_YTDLP_EXE") else {
+    use std::path::Path;
+    let Some(source) = std::env::var_os("OVD_TEST_YTDLP_DIR") else {
       return;
     };
-    let root =
-      std::env::temp_dir().join(format!("ovd-ytdlp-test-{}", uuid::Uuid::new_v4()));
+    let root = std::env::temp_dir().join(format!("ovd-ytdlp-test-{}", uuid::Uuid::new_v4()));
     let staging = root.join("staging");
     let bin = root.join("bin");
     std::fs::create_dir_all(&staging).unwrap();
     std::fs::create_dir_all(&bin).unwrap();
-    std::fs::copy(source, staging.join("yt-dlp.exe")).unwrap();
+    // yt-dlp's Windows asset is a bundle: its adjacent runtime files are required.
+    fn copy_tree(source: &Path, destination: &Path) -> std::io::Result<()> {
+      std::fs::create_dir_all(destination)?;
+      for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        let target = destination.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+          copy_tree(&entry.path(), &target)?;
+        } else {
+          std::fs::copy(entry.path(), target)?;
+        }
+      }
+      Ok(())
+    }
+    copy_tree(Path::new(&source), &staging).unwrap();
     let reports = Resolver::default()
       .resolve(&Discovery {
         bin_dir: staging.clone(),
@@ -156,10 +170,25 @@ mod tests {
         locked: true,
       })
       .await;
-    let report = reports.iter().find(|report| report.tool == "yt-dlp").unwrap();
+    let report = reports
+      .iter()
+      .find(|report| report.tool == "yt-dlp")
+      .unwrap();
     assert!(report.active.is_some(), "{report:?}");
     super::publish(&staging, &bin).await.unwrap();
-    assert!(bin.join("yt-dlp.exe").is_file());
+    let published = Resolver::default()
+      .resolve(&Discovery {
+        bin_dir: bin.clone(),
+        search_dirs: Vec::new(),
+        configured: Default::default(),
+        locked: true,
+      })
+      .await;
+    let report = published
+      .iter()
+      .find(|report| report.tool == "yt-dlp")
+      .unwrap();
+    assert!(report.active.is_some(), "{report:?}");
     std::fs::remove_dir_all(root).unwrap();
   }
 
@@ -196,8 +225,7 @@ mod tests {
   #[tokio::test]
   async fn publication_restores_existing_tool_when_replacement_fails() {
     use std::os::windows::fs::OpenOptionsExt;
-    let root =
-      std::env::temp_dir().join(format!("ovd-rollback-test-{}", uuid::Uuid::new_v4()));
+    let root = std::env::temp_dir().join(format!("ovd-rollback-test-{}", uuid::Uuid::new_v4()));
     let staging = root.join("staging");
     let bin = root.join("bin");
     std::fs::create_dir_all(&staging).unwrap();
@@ -209,7 +237,10 @@ mod tests {
       .share_mode(0)
       .open(staging.join("yt-dlp.exe"))
       .unwrap();
-    let error = super::publish(&staging, &bin).await.unwrap_err().to_string();
+    let error = super::publish(&staging, &bin)
+      .await
+      .unwrap_err()
+      .to_string();
     assert!(error.contains("Unable to move"));
     assert!(error.contains("yt-dlp.exe"));
     assert_eq!(std::fs::read(bin.join("yt-dlp.exe")).unwrap(), b"previous");
