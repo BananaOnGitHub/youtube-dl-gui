@@ -650,8 +650,14 @@ fn parse_identity(tool: &str, output: &str) -> Option<String> {
 /// The existing process-tree facility also contains child processes on Windows.
 pub fn probe(path: &Path, args: &[&str], timeout: Duration) -> Result<String, String> {
   let mut command = Command::new(path);
+  command.args(args);
+  probe_command(command, timeout)
+}
+
+/// Execute an already configured command, retaining the resolver's bounded
+/// output, deadline, and process-tree cleanup (including its explicit PATH).
+pub fn probe_command(mut command: Command, timeout: Duration) -> Result<String, String> {
   command
-    .args(args)
     .stdin(Stdio::null())
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());

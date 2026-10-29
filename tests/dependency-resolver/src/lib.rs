@@ -17,3 +17,6 @@ pub mod runtime;
 pub mod binaries {
   pub use crate::{binaries_extractor, installer, resolver, runtime};
 }
+
+#[path = "../../../src-tauri/src/binaries/validation.rs"]
+pub mod validation;

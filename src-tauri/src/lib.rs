@@ -286,3 +286,15 @@ const fn tracing_levels() -> LevelFilter {
 fn tracing_levels() -> LevelFilter {
   LevelFilter::INFO
 }
+
+/// Headless CI entry point, unavailable in normal application builds.
+#[cfg(feature = "dependency-validation")]
+pub async fn validate_dependencies(
+  input: &std::path::Path,
+  root: &std::path::Path,
+  output: &std::path::Path,
+  expected_layout: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+  paths::PathsManager::validate_layout(&root.join("app-data"), expected_layout)?;
+  binaries::validation::run(input, root, output).await
+}

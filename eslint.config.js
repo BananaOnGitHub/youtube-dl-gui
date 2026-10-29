@@ -28,6 +28,10 @@ export default [
       'tests/dependency-resolver/target/**',
       'src/vite-env.d.ts',
       'msix-layout/**',
+      'validation-assets/**',
+      'validation-results/**',
+      'validation-work/**',
+      'portable-layout/**',
       '.vite/**',
     ],
   },
@@ -69,5 +73,9 @@ export default [
         messageSyntaxVersion: '^11.0.0',
       },
     },
+  },
+  {
+    files: ['scripts/*.mjs'],
+    languageOptions: { ecmaVersion: 'latest', sourceType: 'module' },
   },
 ];
