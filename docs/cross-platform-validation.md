@@ -132,3 +132,39 @@ avoids misleading downstream errors from composite actions skipping internal ste
 after an earlier failure. No artifact or success signal substitutes for inspected
 execution results. The next run is required before claiming these repairs passed
 on the affected platforms.
+
+## Second expanded run and remaining repairs
+
+All six job logs and their downloaded JSON evidence from run `40969399782` at
+`9db2509` were inspected. Every native fixture suite passed (34 tests on Windows
+and Linux, 33 on macOS). Real-tool results were:
+
+| Platform | Native backend | Full application and portable layout | Native package execution |
+| --- | --- | --- | --- |
+| Windows x64 | Passed | Both passed | NSIS installed app ran; conversion failed at the local HTTP fixture |
+| Windows ARM64 | Passed; AtomicParsley uses x64 OS translation | Both passed | NSIS silent installation and backend checks passed |
+| macOS Intel | Four required tools passed; optional ARM-only AtomicParsley correctly rejected | Build blocked before Rust compilation by missing cargo-about CLI | Not exercised |
+| macOS Apple Silicon | All five tools passed natively | Both passed | Built .app backend checks passed |
+| Linux x64 | All five tools passed natively | Both passed | Extracted amd64 .deb backend checks passed |
+| Linux ARM64 | Four required tools passed natively; AtomicParsley unavailable | Both passed with partial optional coverage | Extracted arm64 .deb backend checks passed with partial optional coverage |
+
+The Windows logs identified `WSAEWOULDBLOCK` (10035) on accepted sockets before
+yt-dlp's connection abort (10053). The listener is deliberately nonblocking so
+the server can stop, but accepted sockets inherit that mode on Windows. The
+handler now explicitly restores blocking mode before applying bounded timeouts.
+The permanent fragmented GET/HEAD regression explicitly starts with a nonblocking
+stream on every host. It reproduced the failure on Linux before the fix, ensuring
+this Windows behavior is covered without relying on an intermittent CI failure.
+
+The Intel macOS cargo-about installer compiled v0.9.3 successfully but installed
+no binary: that crate's CLI requires its `cli` feature and there was no matching
+prebuilt binary selected by the fallback. Intel macOS now installs the pinned
+version from source with `--locked --features cli`. Other native jobs use the
+same pinned version through the existing checksum-verifying installer. Every
+platform must execute `cargo about --version` and `cargo about generate --help`
+before the full application build is allowed to proceed. A successful install
+step alone is insufficient evidence that the license tool is usable.
+
+These repairs require another native run. The successful headless checks above
+remain evidence for `9db2509`; they do not establish GUI, IPC, signed release or
+OS package-registration coverage, or a passing result for the next commit.

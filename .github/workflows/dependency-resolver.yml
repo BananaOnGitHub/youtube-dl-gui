@@ -115,10 +115,20 @@ jobs:
         if: ${{ !cancelled() && runner.os == 'Linux' }}
         uses: ./.github/actions/install-tauri-deps
       - name: Install cargo-about for license resources
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.platform != 'darwin-x86_64' }}
         uses: taiki-e/install-action@0fde6d128a3d980ceac30be8c8b8739abd963b81
         with:
-          tool: cargo-about
+          tool: cargo-about@0.9.3
+      - name: Build Intel macOS cargo-about with its required CLI feature
+        if: ${{ !cancelled() && matrix.platform == 'darwin-x86_64' }}
+        run: cargo install cargo-about --version 0.9.3 --locked --features cli
+      - name: Verify license CLI is executable before building
+        id: license-cli
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          cargo about --version
+          cargo about generate --help
       - name: Install frontend dependencies
         id: frontend
         if: ${{ !cancelled() }}
@@ -128,7 +138,7 @@ jobs:
         run: node -e "require('fs').mkdirSync('licenses',{recursive:true});require('fs').writeFileSync('validation-build.json',JSON.stringify({bundle:{createUpdaterArtifacts:false,macOS:{signingIdentity:'-'}}}))"
       - name: Build full native application and package
         id: build
-        if: ${{ !cancelled() && steps.frontend.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.frontend.outcome == 'success' && steps.license-cli.outcome == 'success' }}
         run: npm run tauri build -- --features dependency-validation --bundles ${{ matrix.bundles }} --config validation-build.json
       - name: Execute compiled, portable, and packaged application diagnostics
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.assets.outcome == 'success' }}

@@ -136,6 +136,9 @@ fn machine(path: &Path) -> Result<String, Error> {
 /// Read the complete request before closing the response. Closing a socket with
 /// unread request bytes can reset the connection on Windows (WSAECONNABORTED).
 fn serve_http(stream: &mut TcpStream, data: &[u8]) -> std::io::Result<()> {
+  // Windows accepts inherit the listener's nonblocking mode. Timeouts only
+  // bound blocking reads; reset the mode before waiting for request bytes.
+  stream.set_nonblocking(false)?;
   stream.set_read_timeout(Some(Duration::from_secs(2)))?;
   stream.set_write_timeout(Some(Duration::from_secs(2)))?;
   let mut request = Vec::new();
@@ -559,12 +562,15 @@ mod tests {
   use super::*;
 
   #[test]
-  fn http_fixture_waits_for_fragmented_get_and_head_headers() {
+  fn http_fixture_handles_nonblocking_accepted_sockets_and_fragmented_headers() {
     for method in ["GET", "HEAD"] {
       let listener = TcpListener::bind("127.0.0.1:0").unwrap();
       let address = listener.local_addr().unwrap();
       let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
+        // Windows inherits the nonblocking listener mode on accepted sockets.
+        // Set it explicitly so every host reproduces that behavior.
+        stream.set_nonblocking(true).unwrap();
         serve_http(&mut stream, b"media").unwrap();
       });
       let mut client = TcpStream::connect(address).unwrap();
