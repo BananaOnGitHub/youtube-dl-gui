@@ -634,11 +634,11 @@ impl BinariesManager {
           }
         }
         _ => {
-          fs::rename(dest, &canonical).await?;
+          super::installer::rename_if_needed(dest, &canonical).await?;
         }
       }
     } else {
-      fs::rename(dest, &canonical).await?;
+      super::installer::rename_if_needed(dest, &canonical).await?;
     }
 
     #[cfg(unix)]

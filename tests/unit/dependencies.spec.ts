@@ -9,6 +9,7 @@ import { i18n } from '../../src/i18n';
 import { useBinariesStore } from '../../src/stores/binaries';
 import { useSettingsStore } from '../../src/stores/settings';
 import type { DependencyReport } from '../../src/tauri/types/binaries';
+import InstallView from '../../src/views/full/InstallView.vue';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
@@ -68,6 +69,20 @@ describe('dependency settings', () => {
 });
 
 describe('dependency startup', () => {
+  it('shows tools discovered before installation with their paths and keeps them visible after installation', async () => {
+    invokeMock.mockImplementation(async command => command === 'binaries_check'
+      ? { tools: ['yt-dlp'], dependencies: [report()] }
+      : undefined);
+    const store = useBinariesStore();
+    await store.check();
+    const wrapper = mount(InstallView, { global: { plugins: [i18n], stubs: { BaseButton: true, BaseSubNav: { template: '<div><slot name="title"/><slot/></div>' }, ToolCard: true } } });
+    await flushPromises();
+    expect(wrapper.text()).toContain('Dependencies already found');
+    expect(wrapper.text()).toContain('C:\\Tools ü\\deno.exe');
+    expect(wrapper.text()).toContain('System');
+    expect(wrapper.text()).toContain('2.5.0');
+    wrapper.unmount();
+  });
   it('resolves missing tools even with automatic managed updates disabled', async () => {
     const settings = useSettingsStore();
     const previous = settings.settings.update.updateBinaries;

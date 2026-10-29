@@ -6,6 +6,14 @@ use tokio::io::AsyncWriteExt;
 
 type InstallError = Box<dyn std::error::Error + Send + Sync>;
 
+/// A direct download may already have the executable's canonical name.
+pub async fn rename_if_needed(source: &Path, destination: &Path) -> std::io::Result<()> {
+  if source != destination {
+    tokio::fs::rename(source, destination).await?;
+  }
+  Ok(())
+}
+
 pub async fn download_verified(
   client: &reqwest::Client,
   url: &str,
@@ -86,4 +94,21 @@ pub async fn publish(staging: &Path, bin: &Path) -> Result<(), InstallError> {
     result
   })
   .await?
+}
+
+#[cfg(test)]
+mod tests {
+  #[tokio::test]
+  async fn direct_download_with_canonical_name_is_kept_in_place() {
+    let dir = std::env::temp_dir().join(format!("ovd-rename-test-{}", uuid::Uuid::new_v4()));
+    tokio::fs::create_dir(&dir).await.unwrap();
+    let path = dir.join("yt-dlp.exe");
+    tokio::fs::write(&path, b"executable").await.unwrap();
+    super::rename_if_needed(&path, &path).await.unwrap();
+    assert_eq!(tokio::fs::read(&path).await.unwrap(), b"executable");
+    let renamed = dir.join("renamed.exe");
+    super::rename_if_needed(&path, &renamed).await.unwrap();
+    assert_eq!(tokio::fs::read(&renamed).await.unwrap(), b"executable");
+    tokio::fs::remove_dir_all(dir).await.unwrap();
+  }
 }

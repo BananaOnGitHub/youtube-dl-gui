@@ -4,7 +4,7 @@ import {
   BinaryDownloadProgressPayload,
   BinaryDownloadStartPayload,
   BinaryProgress,
-  BinaryCheckPayload, BinaryDownloadErrorPayload,
+  BinaryCheckPayload, BinaryDownloadErrorPayload, DependencyReport,
 } from '../tauri/types/binaries';
 import { ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
@@ -13,9 +13,11 @@ import { i18n } from '../i18n';
 
 export const useBinariesStore = defineStore('binaries', () => {
   const tools = ref<Record<string, BinaryProgress>>({});
+  const dependencies = ref<DependencyReport[]>([]);
 
   async function check(): Promise<string[]> {
     const result = await invoke<BinaryCheckPayload>('binaries_check');
+    dependencies.value = result.dependencies ?? [];
     if (result.warning) console.warn(result.warning);
     const invalid = result.dependencies?.filter(report => report.status === 'configuredInvalid' || (report.active === null && report.tool !== 'AtomicParsley' && !result.tools.includes(report.tool))) ?? [];
     if (invalid.length > 0) {
@@ -55,5 +57,5 @@ export const useBinariesStore = defineStore('binaries', () => {
     tool.error = `[${payload.stage}] ${payload.error}`;
   }
 
-  return { tools, check, ensure, processBinaryDownloadStart, processBinaryDownloadProgress, processBinaryDownloadError, processBinaryDownloadComplete };
+  return { tools, dependencies, check, ensure, processBinaryDownloadStart, processBinaryDownloadProgress, processBinaryDownloadError, processBinaryDownloadComplete };
 });

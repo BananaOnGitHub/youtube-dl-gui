@@ -984,6 +984,11 @@
     "downloading": "Downloading update…"
   },
   "install": {
+    "found": {
+      "title": "Dependencies already found",
+      "hint": "These validated tools were found before installation. Missing tools are installed below.",
+      "empty": "No usable dependencies were found on this device."
+    },
     "title": {
       "installing": "Installing required tools…",
       "failed": "Failed to install some required tools.",
