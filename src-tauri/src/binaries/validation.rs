@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{
@@ -133,14 +133,58 @@ fn machine(path: &Path) -> Result<String, Error> {
   Err("unrecognized executable architecture".into())
 }
 
+/// Read the complete request before closing the response. Closing a socket with
+/// unread request bytes can reset the connection on Windows (WSAECONNABORTED).
+fn serve_http(stream: &mut TcpStream, data: &[u8]) -> std::io::Result<()> {
+  stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+  stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+  let mut request = Vec::new();
+  let mut chunk = [0u8; 1024];
+  while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+    if request.len() >= 8192 {
+      return Err(std::io::Error::other(
+        "HTTP fixture request headers too large",
+      ));
+    }
+    let count = stream.read(&mut chunk)?;
+    if count == 0 {
+      return Err(std::io::Error::new(
+        std::io::ErrorKind::UnexpectedEof,
+        "incomplete HTTP request",
+      ));
+    }
+    request.extend_from_slice(&chunk[..count]);
+  }
+  let header = format!(
+    "HTTP/1.1 200 OK\r\nContent-Type: audio/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+    data.len()
+  );
+  stream.write_all(header.as_bytes())?;
+  if !request.starts_with(b"HEAD ") {
+    stream.write_all(data)?;
+  }
+  stream.flush()?;
+  stream.shutdown(Shutdown::Write)?;
+  stream.set_read_timeout(Some(Duration::from_millis(250)))?;
+  while matches!(stream.read(&mut chunk), Ok(count) if count > 0) {}
+  Ok(())
+}
+
 pub async fn run(input: &Path, root: &Path, output: &Path) -> Result<(), Error> {
   let mut report = json!({"os": std::env::consts::OS, "arch": std::env::consts::ARCH,
     "status": "failed", "checks": [], "assets": [], "guiExercised": false});
   std::fs::create_dir_all(root)?;
   let root = root.canonicalize()?;
+  report["sourceCommit"] = json!(option_env!("GITHUB_SHA"));
+  report["appVersion"] = json!(env!("CARGO_PKG_VERSION"));
   let result = run_checks(input, &root, &mut report).await;
   match &result {
-    Ok(()) => report["status"] = json!("passed"),
+    Ok(()) => {
+      let incomplete = report["assets"].as_array().unwrap().iter().any(|asset| {
+        asset["status"] == "unavailable" || asset["status"] == "rejected-incompatible"
+      });
+      report["status"] = json!(if incomplete { "partial" } else { "passed" });
+    }
     Err(error) => report["error"] = json!(error.to_string()),
   }
   if let Some(parent) = output.parent() {
@@ -256,6 +300,32 @@ async fn run_checks(input: &Path, root: &Path, report: &mut Value) -> Result<(),
       && architecture == "x86_64"
       && std::env::consts::ARCH == "aarch64"
       && (cfg!(windows) || (cfg!(target_os = "macos") && name == "AtomicParsley"));
+    if !native && !translated && name == "AtomicParsley" {
+      // Optional tool: keep a bad signed asset visible and prove that production
+      // validation rejects it. Do not replace its hash or claim it is compatible.
+      let rejected = Resolver::default()
+        .resolve(&Discovery {
+          bin_dir: staging.clone(),
+          search_dirs: Vec::new(),
+          configured: Default::default(),
+          locked: true,
+        })
+        .await;
+      let dependency = rejected.iter().find(|r| r.tool == name).unwrap();
+      require(
+        dependency.active.is_none(),
+        "wrong-architecture AtomicParsley unexpectedly validated",
+      )?;
+      report["assets"].as_array_mut().unwrap().push(json!({
+        "tool": name, "status": "rejected-incompatible", "selectedPlatform": key,
+        "binaryArchitecture": architecture, "url": asset.url, "sha256": asset.sha256,
+        "diagnostics": dependency.diagnostics,
+        "reason": "optional signed asset does not support this runner architecture"
+      }));
+      println!("PARTIAL: optional {name} asset is {architecture}, incompatible with {platform}");
+      std::fs::remove_dir_all(staging)?;
+      continue;
+    }
     require(
       native || translated,
       format!("{name}: unexpected architecture {architecture} on {platform}"),
@@ -424,14 +494,8 @@ async fn run_checks(input: &Path, root: &Path, report: &mut Value) -> Result<(),
   let server = std::thread::spawn(move || {
     while !thread_stop.load(Ordering::Relaxed) {
       if let Ok((mut stream, _)) = listener.accept() {
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-        let mut request = [0u8; 8192];
-        if let Ok(count) = stream.read(&mut request) {
-          let header = format!("HTTP/1.1 200 OK\r\nContent-Type: audio/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", data.len());
-          let _ = stream.write_all(header.as_bytes());
-          if !request[..count].starts_with(b"HEAD ") {
-            let _ = stream.write_all(&data);
-          }
+        if let Err(error) = serve_http(&mut stream, &data) {
+          eprintln!("local HTTP fixture: {error}");
         }
       } else {
         std::thread::sleep(Duration::from_millis(10));
@@ -488,4 +552,46 @@ async fn run_checks(input: &Path, root: &Path, report: &mut Value) -> Result<(),
     "split FFmpeg/FFprobe aliasing, real local yt-dlp download and AAC-to-MP3 conversion",
   );
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn http_fixture_waits_for_fragmented_get_and_head_headers() {
+    for method in ["GET", "HEAD"] {
+      let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+      let address = listener.local_addr().unwrap();
+      let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        serve_http(&mut stream, b"media").unwrap();
+      });
+      let mut client = TcpStream::connect(address).unwrap();
+      client
+        .set_read_timeout(Some(Duration::from_millis(50)))
+        .unwrap();
+      write!(client, "{method} /sample.m4a HTTP/1.1\r\n").unwrap();
+      let mut byte = [0u8];
+      let error = client.read(&mut byte).unwrap_err();
+      assert!(matches!(
+        error.kind(),
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+      ));
+      client
+        .write_all(b"Host: localhost\r\nConnection: close\r\n\r\n")
+        .unwrap();
+      client
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+      let mut response = Vec::new();
+      client.read_to_end(&mut response).unwrap();
+      let response = String::from_utf8(response).unwrap();
+      assert!(response.contains("Content-Length: 5\r\n"));
+      let body = response.split_once("\r\n\r\n").unwrap().1;
+      assert_eq!(body, if method == "GET" { "media" } else { "" });
+      drop(client);
+      server.join().unwrap();
+    }
+  }
 }

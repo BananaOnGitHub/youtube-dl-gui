@@ -90,6 +90,8 @@ jobs:
             tests/dependency-resolver -> target
             src-tauri -> target
           key: native-validation-${{ matrix.platform }}
+      - name: Packaging evidence regression tests
+        run: node --test scripts/validation-evidence.test.mjs
       - name: Native fixtures and regression tests
         run: cargo test --locked --manifest-path tests/dependency-resolver/Cargo.toml
       - name: Clippy and formatting
@@ -102,9 +104,12 @@ jobs:
         run: sudo softwareupdate --install-rosetta --agree-to-license
       - name: Verify signed manifest and download native assets
         id: assets
+        continue-on-error: true
         run: node scripts/prepare-validation-assets.mjs
       - name: Exercise real dependency resolution and media processing
         id: live
+        if: steps.assets.outcome == 'success'
+        continue-on-error: true
         run: cargo run --locked --manifest-path tests/dependency-resolver/Cargo.toml --bin live-validation -- validation-assets/input.json "validation-work/harness ü" validation-results/native.json
       - name: Install Linux desktop build dependencies
         if: ${{ !cancelled() && runner.os == 'Linux' }}
@@ -128,6 +133,12 @@ jobs:
       - name: Execute compiled, portable, and packaged application diagnostics
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.assets.outcome == 'success' }}
         run: node scripts/validate-native-package.mjs
+      - name: Summarize complete and partial validation evidence
+        if: always()
+        run: node scripts/summarize-validation.mjs
+      - name: Enforce real dependency checks after collecting build evidence
+        if: ${{ always() && (steps.assets.outcome != 'success' || steps.live.outcome != 'success') }}
+        run: node -e "throw new Error('Real dependency checks failed; inspect the asset and native reports')"
       - name: Upload validation evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

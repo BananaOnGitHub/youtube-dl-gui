@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { cp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { verifyApplicationEvidence } from './validation-evidence.mjs';
 
 const root = process.cwd();
 const results = path.join(root, 'validation-results');
@@ -10,6 +11,10 @@ const input = path.join(root, 'validation-assets/input.json');
 const extension = process.platform === 'win32' ? '.exe' : '';
 const compiled = path.join(root, `src-tauri/target/release/open-video-downloader${extension}`);
 const checks = [];
+const hashes = {};
+const inputMetadata = JSON.parse(await readFile(input, 'utf8'));
+const version = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).version;
+const expected = { platform: inputMetadata.platform, version, commit: process.env.GITHUB_SHA };
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: 'inherit', timeout: 300000, windowsHide: true });
   if (result.error) throw result.error;
@@ -17,11 +22,14 @@ function run(command, args) {
 }
 async function smoke(executable, mode, label) {
   const report = path.join(results, `${label}.json`);
+  await rm(report, { force: true });
   const check = { label, mode, executable, report, status: 'running', guiExercised: false };
   checks.push(check);
   try {
     run(executable, ['--validate-dependencies', input, path.join(root, `validation-work/${label} ü`), report, mode]);
-    check.status = 'passed';
+    const evidence = JSON.parse(await readFile(report, 'utf8'));
+    check.status = verifyApplicationEvidence(evidence, expected);
+    check.sourceCommit = evidence.sourceCommit;
   } catch (error) {
     check.status = 'failed';
     check.error = String(error);
@@ -75,10 +83,11 @@ try {
   }
   if (!packaged) throw new Error('Packaged application executable missing');
   const digest = async file => createHash('sha256').update(await readFile(file)).digest('hex');
-  // macOS ad-hoc signing changes the executable; validate its execution directly.
-  if (process.platform !== 'darwin' && await digest(packaged) !== await digest(compiled)) throw new Error('Packaged executable differs from compiled application');
+  hashes.compiled = await digest(compiled);
+  hashes.packaged = await digest(packaged);
+  hashes.byteIdentical = hashes.compiled === hashes.packaged;
   await smoke(packaged, 'installed', 'packaged-app');
   checks.at(-1).packagingMethod = method;
 } finally {
-  await writeFile(path.join(results, 'packaging.json'), JSON.stringify({ checks, guiExercised: false }, null, 2));
+  await writeFile(path.join(results, 'packaging.json'), JSON.stringify({ status: checks.some(check => check.status === 'failed') ? 'failed' : checks.length < 3 ? 'incomplete' : checks.some(check => check.status === 'partial') ? 'partial' : 'passed', checks, hashes, coverage: checks.some(check => check.status === 'partial') ? 'partial' : 'required checks', guiExercised: false }, null, 2));
 }

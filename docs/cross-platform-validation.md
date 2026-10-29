@@ -64,7 +64,11 @@ unsigned validation builds, not byte-for-byte release-profile reproductions.
 7. Repeat through the full application in normal and portable storage layouts,
    then through its generated native package.
 
-Linux ARM64 has no managed AtomicParsley asset in the currently signed manifest;
+The current signed manifest maps an ARM-only AtomicParsley macOS archive to its
+Intel key. Native Intel validation rejects that optional asset and explicitly
+reports partial coverage; its hash is never replaced or bypassed. The required
+four tools continue through all execution and packaging checks. Linux ARM64 also
+has no managed AtomicParsley asset in the currently signed manifest;
 that optional dependency is reported unavailable, not fabricated or silently
 substituted. Windows ARM64 assets can contain Intel executables; such successful
 execution is classified as OS translation, not native ARM validation. Apple
@@ -99,3 +103,32 @@ nested ZIP. A cleanup job has repository write permission only for deleting the
 six audited `build/portable-x64-*` branches. It checks their exact saved heads and
 refuses any branch whose unique diff includes anything besides the obsolete
 portable build workflow. The native validation job has read-only contents access.
+
+## First expanded run and regression repairs
+
+Actions run `40965503448` at `82eac11` was inspected job by job:
+
+| Platform | Actual execution established | Remaining failure in that run |
+| --- | --- | --- |
+| Windows x64 | Real native harness and compiled application backend passed | Portable-layout HTTP fixture connection reset before completing conversion |
+| Windows ARM64 | Real harness, compiled app and portable app backend passed | Packaged binary blocked by a raw-byte equality assertion |
+| macOS Intel | The four required staged executables passed validation | Optional signed AtomicParsley asset is ARM-only; subsequent composite installer did not install cargo-about after the earlier failure |
+| macOS ARM64 | Real harness, compiled app, portable marker layout and packaged app backend all passed | None in covered headless scenarios |
+| Linux x64 | Real harness, compiled app and portable app backend passed | Packaged binary blocked by a raw-byte equality assertion |
+| Linux ARM64 | Required-tool harness, compiled app and portable app backend passed | Packaged binary blocked by a raw-byte equality assertion; no optional AtomicParsley asset |
+
+The repaired HTTP fixture drains complete, potentially fragmented request headers
+before returning media and closing the connection. A permanent GET/HEAD fragmented
+header test runs on all six native hosts. Package checks record both binary hashes,
+then require the packaged executable itself to report the expected embedded commit,
+application version and native platform and to complete its real backend checks.
+They do not assume byte identity across packaging. Permanent identity tests reject
+wrong commits, versions and platforms. Partial optional-tool results remain visibly
+partial in JSON evidence and job summaries, even when required functionality passes.
+
+Real-dependency step failures are collected without preventing the full build from
+running. A final gate still fails the job if those required checks failed; this
+avoids misleading downstream errors from composite actions skipping internal steps
+after an earlier failure. No artifact or success signal substitutes for inspected
+execution results. The next run is required before claiming these repairs passed
+on the affected platforms.
