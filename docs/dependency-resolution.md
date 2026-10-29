@@ -71,7 +71,8 @@ on the filename or a static architecture header. Probes run on blocking workers,
 with closed stdin, a five-second deadline per invocation, a 512 KiB limit per
 output stream and process-group/job termination. Successful validation is cached
 for up to 30 seconds; path target, length, modification time and Unix executable
-permissions are checked on every resolution. Failed probes are not cached.
+permissions are checked on every resolution. Failed probes are not cached. Transient Unix executable-write locks (ETXTBSY)
+are retried for up to 500 ms within the original invocation deadline.
 
 Minimum policy and functional checks:
 
@@ -182,8 +183,8 @@ browser download was unavailable (invalid archive), so the E2E run used
 Chromium 153 from an isolated temporary package instead of Chromium 148.
 No application/package dependency was changed for that workaround.
 
-Full backend `cargo test`: 153 passed. The independent production-module harness
-has 29 passing tests. Tests create native fixture executables and temporary
+Full backend `cargo test`: 154 passed. The independent production-module harness
+has 30 passing tests. Tests create native fixture executables and temporary
 Unicode/space-containing paths, do not depend on installed media tools, and use
 loopback HTTP only for failure/hash/recovery testing. The integration test runs
 the actual command builder and invokes both resolved FFmpeg/FFprobe paths.

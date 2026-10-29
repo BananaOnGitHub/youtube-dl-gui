@@ -95,7 +95,7 @@ fn active<'a>(reports: &'a [DependencyReport], name: &str) -> &'a ResolvedDepend
     .unwrap()
     .active
     .as_ref()
-    .unwrap()
+    .unwrap_or_else(|| panic!("{name}: {reports:#?}"))
 }
 fn report<'a>(reports: &'a [DependencyReport], name: &str) -> &'a DependencyReport {
   reports.iter().find(|r| r.tool == name).unwrap()
@@ -183,10 +183,13 @@ async fn wrong_identity_and_launch_failure_are_distinct_from_compatible() {
     let f = Fixture::new();
     f.tool("system", "ffmpeg", "6.0.0", mode, 60);
     let reports = Resolver::default().resolve(&f.discovery()).await;
-    assert!(report(&reports, "ffmpeg")
-      .diagnostics
-      .iter()
-      .any(|d| d.status == expected));
+    assert!(
+      report(&reports, "ffmpeg")
+        .diagnostics
+        .iter()
+        .any(|d| d.status == expected),
+      "expected {expected:?}: {reports:#?}"
+    );
     assert!(report(&reports, "ffmpeg").active.is_none());
   }
 }
@@ -571,4 +574,19 @@ async fn missing_managed_fallback_does_not_hide_an_incompatible_system_diagnosti
   f.tool("system", "deno", "1.0.0", "ok", 0);
   let reports = Resolver::default().resolve(&f.discovery()).await;
   assert_eq!(report(&reports, "deno").status, Status::Incompatible);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn transient_executable_write_lock_does_not_reject_a_compatible_tool() {
+  let f = Fixture::new();
+  let path = f.tool("system", "deno", "2.5.0", "ok", 0);
+  let writer = fs::OpenOptions::new().write(true).open(&path).unwrap();
+  let holder = std::thread::spawn(move || {
+    std::thread::sleep(Duration::from_millis(80));
+    drop(writer);
+  });
+  let output = probe(&path, &["--version"], Duration::from_secs(2)).unwrap();
+  holder.join().unwrap();
+  assert!(output.contains("deno 2.5.0"));
 }
