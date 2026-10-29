@@ -6,10 +6,46 @@ use tokio::io::AsyncWriteExt;
 
 type InstallError = Box<dyn std::error::Error + Send + Sync>;
 
+/// Windows scanners and recently exited validation processes can temporarily
+/// deny renames. Retry only those Windows lock errors, with a bounded deadline.
+fn rename_managed(source: &Path, destination: &Path) -> std::io::Result<()> {
+  #[cfg(not(windows))]
+  let result = std::fs::rename(source, destination);
+  #[cfg(windows)]
+  let result = {
+    let started = std::time::Instant::now();
+    loop {
+      match std::fs::rename(source, destination) {
+        Err(error)
+          if matches!(error.raw_os_error(), Some(5 | 32 | 33))
+            && started.elapsed() < std::time::Duration::from_secs(5) =>
+        {
+          std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        result => break result,
+      }
+    }
+  };
+  result.map_err(|error| {
+    std::io::Error::new(
+      error.kind(),
+      format!(
+        "Unable to move {} to {}: {error}",
+        source.display(),
+        destination.display()
+      ),
+    )
+  })
+}
+
 /// A direct download may already have the executable's canonical name.
 pub async fn rename_if_needed(source: &Path, destination: &Path) -> std::io::Result<()> {
   if source != destination {
-    tokio::fs::rename(source, destination).await?;
+    let source = source.to_path_buf();
+    let destination = destination.to_path_buf();
+    tokio::task::spawn_blocking(move || rename_managed(&source, &destination))
+      .await
+      .map_err(std::io::Error::other)??;
   }
   Ok(())
 }
@@ -39,7 +75,7 @@ pub async fn download_verified(
     }
     file.flush().await?;
     drop(file); // Close before rename on Windows.
-    tokio::fs::rename(&temporary, destination).await?;
+    rename_if_needed(&temporary, destination).await?;
     Ok(())
   }
   .await;
@@ -66,10 +102,10 @@ pub async fn publish(staging: &Path, bin: &Path) -> Result<(), InstallError> {
         let name = entry.file_name();
         let target = bin.join(&name);
         if target.exists() {
-          std::fs::rename(&target, backup.join(&name))?;
+          rename_managed(&target, &backup.join(&name))?;
           saved.push(name.clone());
         }
-        std::fs::rename(entry.path(), &target)?;
+        rename_managed(&entry.path(), &target)?;
         published.push(name);
       }
       Ok(())
@@ -84,7 +120,7 @@ pub async fn publish(staging: &Path, bin: &Path) -> Result<(), InstallError> {
         }
       }
       for name in &saved {
-        std::fs::rename(backup.join(name), bin.join(name))?;
+        rename_managed(&backup.join(name), &bin.join(name))?;
       }
     }
     let _ = std::fs::remove_dir_all(&backup);
@@ -98,6 +134,89 @@ pub async fn publish(staging: &Path, bin: &Path) -> Result<(), InstallError> {
 
 #[cfg(test)]
 mod tests {
+  #[cfg(windows)]
+  #[tokio::test]
+  async fn validated_ytdlp_is_publishable() {
+    use crate::binaries::resolver::{Discovery, Resolver};
+    let Some(source) = std::env::var_os("OVD_TEST_YTDLP_EXE") else {
+      return;
+    };
+    let root =
+      std::env::temp_dir().join(format!("ovd-ytdlp-test-{}", uuid::Uuid::new_v4()));
+    let staging = root.join("staging");
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&staging).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::copy(source, staging.join("yt-dlp.exe")).unwrap();
+    let reports = Resolver::default()
+      .resolve(&Discovery {
+        bin_dir: staging.clone(),
+        search_dirs: Vec::new(),
+        configured: Default::default(),
+        locked: true,
+      })
+      .await;
+    let report = reports.iter().find(|report| report.tool == "yt-dlp").unwrap();
+    assert!(report.active.is_some(), "{report:?}");
+    super::publish(&staging, &bin).await.unwrap();
+    assert!(bin.join("yt-dlp.exe").is_file());
+    std::fs::remove_dir_all(root).unwrap();
+  }
+
+  #[cfg(windows)]
+  #[tokio::test]
+  async fn publication_waits_for_a_windows_file_lock() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let root = std::env::temp_dir().join(format!("ovd-lock-test-{}", uuid::Uuid::new_v4()));
+    let staging = root.join("staging");
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&staging).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    let executable = staging.join("yt-dlp.exe");
+    std::fs::write(&executable, b"new executable").unwrap();
+    let lock = std::fs::OpenOptions::new()
+      .read(true)
+      .share_mode(0)
+      .open(&executable)
+      .unwrap();
+    let release = std::thread::spawn(move || {
+      std::thread::sleep(std::time::Duration::from_millis(250));
+      drop(lock);
+    });
+    super::publish(&staging, &bin).await.unwrap();
+    release.join().unwrap();
+    assert_eq!(
+      std::fs::read(bin.join("yt-dlp.exe")).unwrap(),
+      b"new executable"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+  }
+
+  #[cfg(windows)]
+  #[tokio::test]
+  async fn publication_restores_existing_tool_when_replacement_fails() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let root =
+      std::env::temp_dir().join(format!("ovd-rollback-test-{}", uuid::Uuid::new_v4()));
+    let staging = root.join("staging");
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&staging).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(staging.join("yt-dlp.exe"), b"replacement").unwrap();
+    std::fs::write(bin.join("yt-dlp.exe"), b"previous").unwrap();
+    let lock = std::fs::OpenOptions::new()
+      .read(true)
+      .share_mode(0)
+      .open(staging.join("yt-dlp.exe"))
+      .unwrap();
+    let error = super::publish(&staging, &bin).await.unwrap_err().to_string();
+    assert!(error.contains("Unable to move"));
+    assert!(error.contains("yt-dlp.exe"));
+    assert_eq!(std::fs::read(bin.join("yt-dlp.exe")).unwrap(), b"previous");
+    drop(lock);
+    std::fs::remove_dir_all(root).unwrap();
+  }
+
   #[tokio::test]
   async fn direct_download_with_canonical_name_is_kept_in_place() {
     let dir = std::env::temp_dir().join(format!("ovd-rename-test-{}", uuid::Uuid::new_v4()));

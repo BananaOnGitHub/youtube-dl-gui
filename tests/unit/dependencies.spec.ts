@@ -9,6 +9,7 @@ import { i18n } from '../../src/i18n';
 import { useBinariesStore } from '../../src/stores/binaries';
 import { useSettingsStore } from '../../src/stores/settings';
 import type { DependencyReport } from '../../src/tauri/types/binaries';
+import ToolCard from '../../src/components/tool-card/ToolCard.vue';
 import InstallView from '../../src/views/full/InstallView.vue';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -75,9 +76,13 @@ describe('dependency startup', () => {
       : undefined);
     const store = useBinariesStore();
     await store.check();
-    const wrapper = mount(InstallView, { global: { plugins: [i18n], stubs: { BaseButton: true, BaseSubNav: { template: '<div><slot name="title"/><slot/></div>' }, ToolCard: true } } });
+    const wrapper = mount(InstallView, { global: { plugins: [i18n], stubs: { BaseButton: true, BaseSubNav: { template: '<div><slot name="title"/><slot/></div>' } } } });
     await flushPromises();
-    expect(wrapper.text()).toContain('Dependencies already found');
+    const found = wrapper.findAllComponents(ToolCard).find(card => card.props('name') === 'deno')!;
+    expect(found.props('tool').percent).toBe(100);
+    expect(found.get('.badge').text()).toBe('2.5.0');
+    expect(found.find('.stroke-success').exists()).toBe(true);
+    expect(found.text()).not.toContain('0 B / 0 B');
     expect(wrapper.text()).toContain('C:\\Tools ü\\deno.exe');
     expect(wrapper.text()).toContain('System');
     expect(wrapper.text()).toContain('2.5.0');

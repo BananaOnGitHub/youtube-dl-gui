@@ -25,17 +25,13 @@
     </template>
   </base-sub-nav>
   <div class="flex flex-col gap-4 p-6">
-    <section aria-labelledby="found-dependencies" class="rounded-box bg-base-200 p-4">
-      <h2 id="found-dependencies" class="font-semibold">{{ t('install.found.title') }}</h2>
-      <p class="text-sm">{{ t('install.found.hint') }}</p>
-      <p v-if="foundDependencies.length === 0" class="text-sm mt-2">{{ t('install.found.empty') }}</p>
-      <ul v-else class="flex flex-col gap-3 mt-3">
-        <li v-for="report in foundDependencies" :key="report.tool" class="min-w-0">
-          <p class="font-semibold">{{ report.tool }} <span class="font-normal text-sm">{{ t('settings.dependencies.versionSource', { version: report.active!.version, source: t(`settings.dependencies.source.${report.active!.source}`) }) }}</span></p>
-          <p class="text-sm break-all">{{ report.active!.path }}</p>
-        </li>
-      </ul>
-    </section>
+    <tool-card
+      v-for="dependency in foundDependencies"
+      :key="dependency.tool"
+      :name="dependency.tool"
+      :tool="{ percent: 100, total: 0, received: 0, version: dependency.version }"
+      :dependency="dependency"
+    />
     <tool-card v-for="[name, tool] in Object.entries(tools)" :key="name" :tool="tool" :name="name"/>
   </div>
 </template>
@@ -52,7 +48,7 @@ import { useI18n } from 'vue-i18n';
 const { t } = useI18n();
 const binariesStore = useBinariesStore();
 const tools = computed(() => binariesStore.tools);
-const foundDependencies = computed(() => binariesStore.dependencies.filter(report => report.active !== null));
+const foundDependencies = computed(() => binariesStore.dependencies.flatMap(report => report.active && !tools.value[report.tool] ? [report.active] : []));
 const isInstalling = ref(true);
 const installPartialFail = ref(false);
 
