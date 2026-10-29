@@ -14,7 +14,6 @@ mod tray;
 mod window;
 
 use crate::binaries::binaries_manager::BinariesManager;
-use crate::binaries::binaries_state::BinariesState;
 use crate::commands::*;
 use crate::i18n::I18nManager;
 use crate::logging::LogStoreState;
@@ -136,7 +135,6 @@ pub fn run() {
       handle.manage(DownloadSender(download_dispatcher.sender()));
 
       // setup binaries
-      handle.manage(BinariesState::default());
       handle.manage(BinariesManager::new(handle));
 
       // set up stronghold
@@ -177,6 +175,7 @@ pub fn run() {
       preferences_set,
       binaries_check,
       binaries_ensure,
+      binaries_status,
       updater_check,
       updater_download,
       updater_install,

@@ -24,6 +24,8 @@ export default [
       'src-isolation/**',
       'src-tauri/**',
       'test-results/**',
+      'coverage/**',
+      'tests/dependency-resolver/target/**',
       'src/vite-env.d.ts',
       'msix-layout/**',
       '.vite/**',
