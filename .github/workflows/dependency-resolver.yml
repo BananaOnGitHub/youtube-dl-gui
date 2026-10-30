@@ -2,7 +2,7 @@ name: Dependency resolver
 run-name: Dependencies — ${{ github.ref_name }} @ ${{ github.sha }}
 on:
   push:
-    branches: [main, feature/system-dependency-discovery]
+    branches: [main]
     paths-ignore: ['docs/**']
   pull_request:
     branches: [main]
@@ -13,23 +13,7 @@ concurrency:
   group: dependency-validation-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 jobs:
-  cleanup-build-branches:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/system-dependency-discovery'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 24
-      - name: Remove only the audited redundant build branches
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/cleanup-validation-branches.mjs
   native-tests:
-    # Feature pushes validate the exact head once, rather than duplicating PR runs.
-    if: github.event_name != 'pull_request' || github.head_ref != 'feature/system-dependency-discovery'
     timeout-minutes: 90
     strategy:
       fail-fast: false
