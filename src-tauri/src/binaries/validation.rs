@@ -167,9 +167,16 @@ fn serve_http(stream: &mut TcpStream, data: &[u8]) -> std::io::Result<()> {
     stream.write_all(data)?;
   }
   stream.flush()?;
-  stream.shutdown(Shutdown::Write)?;
-  stream.set_read_timeout(Some(Duration::from_millis(250)))?;
-  while matches!(stream.read(&mut chunk), Ok(count) if count > 0) {}
+  // The client can close as soon as Content-Length bytes arrive. Darwin can
+  // reject shutdown/timeout changes on that closed socket with EINVAL. The
+  // response has already been flushed, so this drain is best-effort cleanup.
+  if stream.shutdown(Shutdown::Write).is_ok()
+    && stream
+      .set_read_timeout(Some(Duration::from_millis(250)))
+      .is_ok()
+  {
+    while matches!(stream.read(&mut chunk), Ok(count) if count > 0) {}
+  }
   Ok(())
 }
 

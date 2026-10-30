@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { verifyApplicationEvidence } from './validation-evidence.mjs';
+import { preparePortable } from './prepare-portable.mjs';
 
 const root = process.cwd();
 const results = path.join(root, 'validation-results');
@@ -48,14 +49,8 @@ async function find(directory, predicate) {
   return null;
 }
 try {
+  const portableExe = await preparePortable(root);
   await smoke(compiled, 'installed', 'compiled-app');
-  const portable = path.join(root, 'portable-layout');
-  await mkdir(path.join(portable, 'ovd-portable'), { recursive: true });
-  await mkdir(path.join(portable, 'licenses'), { recursive: true });
-  await writeFile(path.join(portable, 'ovd-portable/.keep'), 'Keep this directory for portable storage.\n');
-  const portableExe = path.join(portable, `open-video-downloader${extension}`);
-  await cp(compiled, portableExe);
-  await cp(path.join(root, 'licenses/3rdpartylicenses.txt'), path.join(portable, 'licenses/3rdpartylicenses.txt'));
   await smoke(portableExe, 'portable', 'portable-layout');
   const bundle = path.join(root, 'src-tauri/target/release/bundle');
   let packaged;

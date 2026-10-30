@@ -168,3 +168,56 @@ step alone is insufficient evidence that the license tool is usable.
 These repairs require another native run. The successful headless checks above
 remain evidence for `9db2509`; they do not establish GUI, IPC, signed release or
 OS package-registration coverage, or a passing result for the next commit.
+
+## Third expanded run and upstream download drift
+
+All six job logs from run `40973895704` at `d5f3f76` were inspected:
+
+| Platform | Evidence in this run | Outstanding coverage |
+| --- | --- | --- |
+| Windows x64 | Native fixtures, real harness, full application, portable layout and NSIS-installed app backend passed | GUI remains the user's earlier manual validation only |
+| Windows ARM64 | Native fixtures and full native application/NSIS compilation passed | Real execution skipped after the signed FFmpeg download's checksum mismatch; prior run `40969399782` exercised it successfully |
+| macOS Intel | License CLI repair worked; full native app compiled and .app packaged | HTTP fixture regression failed after delivering its response; real backend and package execution skipped |
+| macOS Apple Silicon | Native fixtures, real harness, full application, portable layout and .app backend passed | GUI and notarized distribution unverified |
+| Linux x64 | Native fixtures, real harness, full application, portable layout and extracted .deb backend passed | GUI and OS package registration unverified |
+| Linux ARM64 | Same required-tool checks and extracted .deb execution passed | Optional AtomicParsley unavailable; GUI and OS package registration unverified |
+
+The Intel Mac client received and checked the complete HTTP response, but the
+server then returned `EINVAL` during socket cleanup. Shutdown and drain-timeout
+configuration after a flushed response are now best effort: the peer may already
+have closed. Request reads and response writes still propagate errors. The same
+nonblocking/fragmented GET/HEAD regression remains enabled on every native host.
+
+Windows ARM64's signed manifest referenced a mutable FFmpeg `/latest/` ZIP with
+SHA256 `ba897be554258e2205353f12f10472c156658204b4e08a2805c6562d40fe0782`.
+The archive was replaced upstream with SHA256
+`1072fcb0d44ec6e960c998eb68899326eca6db5bef6957067f1e05ac8a6a0045`, so
+rejection was correct. A subsequent signature-verified manifest fetch contained
+that new checksum, and downloading the actual archive verified against it.
+There is no checksum bypass, alternate trust key or compatibility-fixture
+substitution. The native rerun must still exercise these freshly verified tools.
+
+Future manifest generation in this branch selects a dated FFmpeg autobuild
+release and derives both executable entries from that exact archive name instead
+of a mutable `latest` URL. Regression coverage rejects latest-only metadata,
+drafts, absent ARM assets and mismatched download URLs. This generator change
+does not republish the externally hosted signed manifest: its maintainers must
+adopt the fix for durable production protection against future download drift.
+Strict download regression tests prove changed bytes remain rejected and expose
+the expected and actual hashes in the error.
+
+Asset preparation now saves the verified raw manifest/signature before downloads
+and checkpoints download evidence even on failure. Windows portable files are
+prepared independently of dependency diagnostics, with a regression checking the
+executable, license and portable marker layout without requiring any downloaded
+tools. Uploading the raw folder still produces one outer Actions ZIP.
+
+Before this repair commit, local Linux checks passed: 34 resolver tests, seven
+script regression tests, harness Clippy/formatting, 136 frontend unit tests,
+frontend lint/build, and real signed-tool discovery and media conversion. The
+source generator was also run against real GitHub release metadata and selected
+the dated ARM64 archive; its downloaded PE headers identified both executables
+as ARM64. Local full-app Rust checks lacked cached `ed25519-dalek`; local E2E
+could not start without Chromium and dependency installation was blocked by the
+container's setgroups/setegid restrictions. Those checks are not counted as
+passing; native application results must come from the new Actions run.

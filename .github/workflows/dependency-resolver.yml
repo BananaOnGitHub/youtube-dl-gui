@@ -91,7 +91,7 @@ jobs:
             src-tauri -> target
           key: native-validation-${{ matrix.platform }}
       - name: Packaging evidence regression tests
-        run: node --test scripts/validation-evidence.test.mjs
+        run: node --test scripts/*.test.mjs
       - name: Native fixtures and regression tests
         run: cargo test --locked --manifest-path tests/dependency-resolver/Cargo.toml
       - name: Clippy and formatting
@@ -143,6 +143,9 @@ jobs:
       - name: Execute compiled, portable, and packaged application diagnostics
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.assets.outcome == 'success' }}
         run: node scripts/validate-native-package.mjs
+      - name: Prepare Windows portable files independently of dependency checks
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.build.outcome == 'success' }}
+        run: node scripts/prepare-portable.mjs
       - name: Summarize complete and partial validation evidence
         if: always()
         run: node scripts/summarize-validation.mjs
